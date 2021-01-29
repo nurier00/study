@@ -41,7 +41,7 @@ def test(model, x, y, to_be_shown=True):
 
 
 if __name__ == '__main__':
-    # model_fn = "./model.pth"
+    model_fn = "./model.pth"
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     x, y = load_mnist(is_train=False)
@@ -50,6 +50,6 @@ if __name__ == '__main__':
     x, y = x.to(device), y.to(device)
 
     model = ImageClassifier(28 ** 2, 10).to(device)
-    # model.load_state_dict(load(model_fn, device))
+    model.load_state_dict(load(model_fn, device))
 
     test(model, x[:20], y[:20], to_be_shown=True)
