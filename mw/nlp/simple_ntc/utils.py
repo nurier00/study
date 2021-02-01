@@ -1,3 +1,5 @@
+import torch
+
 def get_grad_norm(parameters, norm_type=2):
     parameters = list(filter(lambda p: p.grad is not None, parameters))
 
