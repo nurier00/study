@@ -310,7 +310,7 @@ def main(config, model_weight=None, opt_weight=None):
     model = get_model(input_size, output_size, config)
     crit = get_crit(output_size, data_loader.PAD)
 
-    print('input_size :', input_size, ', output_size :', output_size)
+    print('## train main : input_size :', input_size, ', output_size :', output_size)
     
 
     if model_weight is not None:

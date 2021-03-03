@@ -25,6 +25,9 @@ class Attention(nn.Module):
         query = self.linear(h_t_tgt)
         # |query| = (batch_size, 1, hidden_size)
 
+        print("## Attention : h_t_tgt ", h_t_tgt.size())
+        print("## Attention : query ", query.size())
+
         weight = torch.bmm(query, h_src.transpose(1, 2))
         # |weight| = (batch_size, 1, length)
         if mask is not None:
@@ -34,11 +37,17 @@ class Attention(nn.Module):
             # Thus, if the sample is shorter than other samples in mini-batch,
             # the weight for empty time-step would be set to 0.
             weight.masked_fill_(mask.unsqueeze(1), -float('inf'))
+
+        print("## Attention : weight ", weight.size())
         weight = self.softmax(weight)
+        print("## Attention : softmax(weight) ", weight.size())
 
         context_vector = torch.bmm(weight, h_src)
         # |context_vector| = (batch_size, 1, hidden_size)
 
+        print("## Attention : torch.bmm(weight, h_src) ", weight.size(), " * ", h_src.size(), "=", context_vector.size())
+
+        print("## Attention : context_vector ", context_vector)
         return context_vector
 
 
@@ -143,28 +152,12 @@ class Generator(nn.Module):
 
     def forward(self, x):
         print('## seq2seq.Generator : forward')
+
         # |x| = (batch_size, length, hidden_size)
 
-        y = self.softmax(self.output(x))
-        # |y| = (batch_size, length, output_size)
-
-        # Return log-probability instead of just probability.
-        return y
-
-
-
-
-class Generator(nn.Module):
-
-    def __init__(self, hidden_size, output_size):
-        super(Generator, self).__init__()
-
-        self.output = nn.Linear(hidden_size, output_size)
-        self.softmax = nn.LogSoftmax(dim=-1)
-
-    def forward(self, x):
-        # |x| = (batch_size, length, hidden_size)
-
+        # y_t_hat = softmax(h_t_tilda_dec * W_gen )
+        # |h_t_tilda_dec| = ( bs, length, hs)
+        # |W_gen| = ( bs, hs, output_size)
         y = self.softmax(self.output(x))
         # |y| = (batch_size, length, output_size)
 
@@ -302,25 +295,49 @@ class Seq2Seq(nn.Module):
         print("## seq2seq.Seq2Seq.forward : encoder end")
         # |h_src| = (batch_size, length, hidden_size)
         # |h_0_tgt| = (n_layers * 2, batch_size, hidden_size / 2)
+        
 
         print("## seq2seq.Seq2Seq.forward : tgt ")
+        print("## seq2seq.Seq2Seq.forward : tgt.size() : ", tgt.size())
+        print(tgt)
+        # (bs, length)
+        
+        print("## seq2seq.Seq2Seq.forward : h_0_tgt ") 
+        #print("## seq2seq.Seq2Seq.forward : len(h_0_tgt) : ", len(h_0_tgt)) # 2
+        print("## seq2seq.Seq2Seq.forward : h_0_tgt[0].size() : ", h_0_tgt[0].size())
+        #print("## seq2seq.Seq2Seq.forward : h_0_tgt[1].size() : ", h_0_tgt[1].size())
         print(h_0_tgt)
+        # |h_0_tgt| = (n_layers * 2, batch_size, hidden_size / 2)
+        #   fast_merge_encoder_hiddens -> (n_layers, batch_size, hidden_size)
+        # bi-directional
+
 
         h_0_tgt = self.fast_merge_encoder_hiddens(h_0_tgt)
-
-        print("## seq2seq.Seq2Seq.forward : tgt fast_merge_encoder_hiddens")
+        print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens h_0_tgt") # 2
+        #print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens len(h_0_tgt) : ", len(h_0_tgt))
+        print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens h_0_tgt[0].size() : ", h_0_tgt[0].size())
+        #print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens h_0_tgt[1].size() : ", h_0_tgt[1].size())
         print(h_0_tgt)
+        #(n_layers, batch_size, hidden_size)
 
         emb_tgt = self.emb_dec(tgt)
 
-        print("## seq2seq.Seq2Seq.forward : h emb_tgt")
+        print("## seq2seq.Seq2Seq.forward : emb_tgt")
+        print("## seq2seq.Seq2Seq.forward : emb_tgt.size() : ", emb_tgt.size())
         print(emb_tgt)
-
         # |emb_tgt| = (batch_size, length, word_vec_size)
+        
         h_tilde = []
 
         h_t_tilde = None
-        decoder_hidden = h_0_tgt
+        decoder_hidden = h_0_tgt # encoder last hidden : context vector
+
+        # length
+        print('tgt.size(1) ', tgt.size(1))  # (batch_size, length)
+        print('emb_tgt.size() ', emb_tgt.size())  # (batch_size, length, word_vec_size)
+        print('emb_tgt.size(1) ', emb_tgt.size(1))  # length)
+        # tgt.size(1) = emb_tgt.size(1)
+
         # Run decoder until the end of the time-step.
         for t in range(tgt.size(1)):
             # Teacher Forcing: take each input from training set,
@@ -329,7 +346,7 @@ class Seq2Seq(nn.Module):
             # training procedure and inference procedure becomes different.
             # Of course, because of sequential running in decoder,
             # this causes severe bottle-neck.
-            emb_t = emb_tgt[:, t, :].unsqueeze(1)
+            emb_t = emb_tgt[:, t, :].unsqueeze(1) # (batch_size, t, word_vec_size) -> (batch_size, word_vec_size)
             # |emb_t| = (batch_size, 1, word_vec_size)
             # |h_t_tilde| = (batch_size, 1, hidden_size)
             print("## seq2seq.Seq2Seq.forward : decoder ", t, " / ", tgt.size(1))
@@ -338,24 +355,42 @@ class Seq2Seq(nn.Module):
                                                           h_t_tilde,
                                                           decoder_hidden
                                                           )
+
+            print ('|decoder_output|=', decoder_output.size() )
+            #print ('|decoder_hidden|=', len(decoder_hidden) )
+            print ('|decoder_hidden[0]|=', decoder_hidden[0].size() )
+            print ('|decoder_hidden[1]|=', decoder_hidden[1].size() )
+            print ('|h_src|=', h_src.size() )
+            print ('|mask|=', mask.size() )
+            
             # |decoder_output| = (batch_size, 1, hidden_size)
             # |decoder_hidden| = (n_layers, batch_size, hidden_size)
 
             context_vector = self.attn(h_src, decoder_output, mask)
             # |context_vector| = (batch_size, 1, hidden_size)
+            print ('|context_vector|=', context_vector.size() )
 
             h_t_tilde = self.tanh(self.concat(torch.cat([decoder_output,
                                                          context_vector
                                                          ], dim=-1)))
             # |h_t_tilde| = (batch_size, 1, hidden_size)
+            print('|h_t_tilde.size()| : ', h_t_tilde.size())
 
             h_tilde += [h_t_tilde]
 
+        # h_tilde : list
+        print('total h_tilde.size', len(h_tilde))  # length 
+        print('total h_tilde[0].size', len(h_tilde[0]))  # bs 
+        print('total h_tilde[0][0].size', len(h_tilde[0][0]))  # 1 - time_step
+        print('total h_tilde[0][0][0].size', len(h_tilde[0][0][0]))  # hs
         h_tilde = torch.cat(h_tilde, dim=1)
+
         # |h_tilde| = (batch_size, length, hidden_size)
+        print('total after h_tilde.size', h_tilde.size())
 
         y_hat = self.generator(h_tilde)
         # |y_hat| = (batch_size, length, output_size)
+        print("|y_hat| : ", y_hat.size())
 
         return y_hat
 
