@@ -130,8 +130,3 @@ dmypy.json
 .vscode/settings.json
 *.xml
 *.iml
-sm/NLG_somang/nlg_preprocessing/nmt/simple_nmt/models/20210226/models.20210226.enko.bs-128.max_length-64.dropout-2.ws-512.hs-768.n_layers-4.iter_per_update-2.01.8.50-4925.11.7.21-1359.28.pth
-sm/NLG_somang/nlg_preprocessing/nmt/simple_nmt/models/20210226/models.20210226.enko.bs-128.max_length-64.dropout-2.ws-512.hs-768.n_layers-4.iter_per_update-2.01.8.52-5034.76.7.16-1283.50.pth
-sm/NLP_somang/nlp1_07_transfer_learning/model.pth
-sm/NLP_somang/nlp1_07_transfer_learning/model_alexnet.pth
-sm/NLP_somang/nlp1_07_transfer_learning/model_vgg.pth
