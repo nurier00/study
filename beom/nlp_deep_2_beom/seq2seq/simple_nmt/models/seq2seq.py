@@ -176,10 +176,10 @@ class Seq2Seq(nn.Module):
         n_layers=4,
         dropout_p=.2
     ):
-        self.input_size = input_size
-        self.word_vec_size = word_vec_size
-        self.hidden_size = hidden_size
-        self.output_size = output_size
+        self.input_size = input_size        # src vocab size
+        self.word_vec_size = word_vec_size   
+        self.hidden_size = hidden_size      
+        self.output_size = output_size      # tgt vocab size
         self.n_layers = n_layers
         self.dropout_p = dropout_p
 
@@ -207,6 +207,10 @@ class Seq2Seq(nn.Module):
 
         max_length = max(length)
         for l in length:
+            #print('x.new_ones(1, l).zero_() : l, max_length', l, max_length)
+            #print(x.new_ones(1, l))
+            #print(x.new_ones(1, l).zero_())
+            #print(x.new_ones(1, (max_length - l)))
             if max_length - l > 0:
                 # If the length is shorter than maximum length among samples, 
                 # set last few values to be 1s to remove attention weight.
@@ -218,6 +222,9 @@ class Seq2Seq(nn.Module):
                 # set every value in mask to be 0.
                 mask += [x.new_ones(1, l).zero_()]
 
+        #print("## seq2seq.Seq2Seq.generate_mask : mask")
+        #print(mask)
+        
         mask = torch.cat(mask, dim=0).bool()
 
         return mask
@@ -284,6 +291,7 @@ class Seq2Seq(nn.Module):
         # Get word embedding vectors for every time-step of input sentence.
         print("## seq2seq.Seq2Seq.forward : x src")
         print(x)
+        # |x| = (batch_size, length(word index))
         emb_src = self.emb_src(x)
         # |emb_src| = (batch_size, length, word_vec_size)
         print("## seq2seq.Seq2Seq.forward : x emb_src")
@@ -307,14 +315,12 @@ class Seq2Seq(nn.Module):
         print("## seq2seq.Seq2Seq.forward : h_0_tgt[0].size() : ", h_0_tgt[0].size())
         #print("## seq2seq.Seq2Seq.forward : h_0_tgt[1].size() : ", h_0_tgt[1].size())
         print(h_0_tgt)
-        # |h_0_tgt| = (n_layers * 2, batch_size, hidden_size / 2)
+        # |h_0_tgt| = (n_layers * 2, batch_size, hidden_size / 2)  : bi-directional
         #   fast_merge_encoder_hiddens -> (n_layers, batch_size, hidden_size)
-        # bi-directional
-
 
         h_0_tgt = self.fast_merge_encoder_hiddens(h_0_tgt)
-        print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens h_0_tgt") # 2
-        #print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens len(h_0_tgt) : ", len(h_0_tgt))
+        print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens h_0_tgt") 
+        #print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens len(h_0_tgt) : ", len(h_0_tgt)) # 2
         print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens h_0_tgt[0].size() : ", h_0_tgt[0].size())
         #print("## seq2seq.Seq2Seq.forward : fast_merge_encoder_hiddens h_0_tgt[1].size() : ", h_0_tgt[1].size())
         print(h_0_tgt)

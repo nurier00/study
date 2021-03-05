@@ -67,12 +67,11 @@ class MaximumLikelihoodEstimationEngine(Engine):
         # |y| = (batch_size, length)
 
         with autocast(not engine.config.off_autocast):
+            print("#### model start")
+
             # Take feed-forward
             # Similar as before, the input of decoder does not have EOS token.
             # Thus, remove EOS token for decoder input.
-            print("#### model start")
-            # x 
-
             y_hat = engine.model(x, mini_batch.tgt[0][:, :-1])
             # |y_hat| = (batch_size, length, output_size)
             print("#### model end")
@@ -81,6 +80,7 @@ class MaximumLikelihoodEstimationEngine(Engine):
                 y_hat.contiguous().view(-1, y_hat.size(-1)),
                 y.contiguous().view(-1)
             )
+            print('# trainer y.size(0) : ', y.size(0))
             backward_target = loss.div(y.size(0)).div(engine.config.iteration_per_update)
 
         if engine.config.gpu_id >= 0 and not engine.config.off_autocast:
