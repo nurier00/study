@@ -48,8 +48,8 @@ class MaximumLikelihoodEstimationEngine(Engine):
         mini_batch.src = (mini_batch.src[0].to(device), mini_batch.src[1])
         mini_batch.tgt = (mini_batch.tgt[0].to(device), mini_batch.tgt[1])
 
-        print(f"mini-batch src : {mini_batch.src[0].shape}, {mini_batch.src[1].shape}")
-        print(f"mini-batch tgt : {mini_batch.tgt[0].shape}, {mini_batch.tgt[1].shape}")
+        # print(f"mini-batch src : {mini_batch.src[0].shape}, {mini_batch.src[1].shape}")
+        # print(f"mini-batch tgt : {mini_batch.tgt[0].shape}, {mini_batch.tgt[1].shape}")
         # mini-batch src : torch.Size([128, 36]), torch.Size([128]) => [bs, length], [bs]
         # mini-batch tgt : torch.Size([128, 58]), torch.Size([128]) => [bs, length], [bs]
 
@@ -79,6 +79,7 @@ class MaximumLikelihoodEstimationEngine(Engine):
                 y.contiguous().view(-1)
             )
             backward_target = loss.div(y.size(0)).div(engine.config.iteration_per_update)
+            # y.size(0) = 배치사이즈 / iteration_per_update = Gradient accumulations
 
         if engine.config.gpu_id >= 0 and not engine.config.off_autocast:
             engine.scaler.scale(backward_target).backward()
@@ -91,7 +92,7 @@ class MaximumLikelihoodEstimationEngine(Engine):
 
         if engine.state.iteration % engine.config.iteration_per_update == 0 and \
            engine.state.iteration > 0:
-            # In orther to avoid gradient exploding, we apply gradient clipping.
+            # In other to avoid gradient exploding, we apply gradient clipping.
             torch_utils.clip_grad_norm_(
                 engine.model.parameters(),
                 engine.config.max_grad_norm,
@@ -230,6 +231,11 @@ class MaximumLikelihoodEstimationEngine(Engine):
                                     ] + [model_fn[-1]]
 
         model_fn = '.'.join(model_fn)
+
+        # models.20210226.enko.bs-128.max_length-64.dropout-2.ws-512.hs-768.n_layers-4.iter_per_update-2
+        # .01.8.50-4925.11.7.21-1359.28.pth
+        # 01 = epoch / 8.50 = train loss 평균 / 4925.11 = exp(train loss 평균) /
+        # 7.21 = valid loss 평균 / 1359.28 = exp(valid loss 평균)
 
         # Unlike other tasks, we need to save current model, not best model.
         torch.save(
