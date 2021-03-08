@@ -164,6 +164,7 @@ class DecoderBlock(nn.Module):
         # |key_and_value| = (batch_size, n, hidden_size)
         # |mask|          = (batch_size, m, n)
 
+        ## Attention 1
         # In case of inference, we don't have to repeat same feed-forward operations.
         # Thus, we save previous feed-forward results.
         if prev is None: # Training mode
@@ -200,6 +201,7 @@ class DecoderBlock(nn.Module):
                 self.masked_attn(z, normed_prev, normed_prev, mask=None)
             )
 
+        ## Attention 2
         # Post-LN:
         # z = self.attn_norm(z + self.attn_dropout(self.attn(Q=z,
         #                                                    K=key_and_value,
@@ -214,6 +216,7 @@ class DecoderBlock(nn.Module):
                                             mask=mask))
         # |z| = (batch_size, m, hidden_size)
 
+        ## FC 
         # Post-LN:
         # z = self.fc_norm(z + self.fc_dropout(self.fc(z)))
 
@@ -341,6 +344,7 @@ class Transformer(nn.Module):
         return mask
 
     def forward(self, x, y):
+        print("# [transformer.py - Transformer.forward] start")
         # |x[0]| = (batch_size, n)
         # |y|    = (batch_size, m)
 
@@ -361,11 +365,37 @@ class Transformer(nn.Module):
 
         # Generate future mask
         with torch.no_grad():
+            '''
+            torch.triu(input, diagonal=0, *, out=None) → Tensor
+              삼각형 텐서를 만들어준다 
+            ex)
+            input : x = [[1,2,3]
+                         [4,5,6]
+                         [7,8,9]]
+            torch.triu(x, 0) = [[1,2,3]
+                                [0,5,6]
+                                [0,0,9]]
+            torch.triu(x, 1) = [[0,2,3]
+                                [0,0,6]
+                                [0,0,0]]
+            '''
+            # y.size(1) = length
             future_mask = torch.triu(x.new_ones((y.size(1), y.size(1))), diagonal=1).bool()
             # |future_mask| = (m, m)
+            #print("# [transformer.py - Transformer.forward] future_mask")
+            #print(future_mask) 
+            # tensor([[False,  True,  True],
+            #         [False, False,  True],
+            #         [False, False, False]])
+
+            # y.size(0) = batch_size
             future_mask = future_mask.unsqueeze(0).expand(y.size(0), *future_mask.size())
+            # future_mask.unsqueeze(0) -> (1, m, m)
+            # future_mask.unsqueeze(0).expand(y.size(0), *future_mask.size()) -> (batch_size, m, m)
+
             # |fwd_mask| = (batch_size, m, m)
 
+        print("# [transformer.py - Transformer.forward] len(self.decoder._modules) + 1 : ", (len(self.decoder._modules) + 1))
         h = self.emb_dropout(self._position_encoding(self.emb_dec(y)))
         h, _, _, _, _ = self.decoder(h, z, mask_dec, None, future_mask)
         # |h| = (batch_size, m, hidden_size)
@@ -379,10 +409,15 @@ class Transformer(nn.Module):
         # |x[0]| = (batch_size, n)
         batch_size = x[0].size(0)
 
+        # padding mask
         mask = self._generate_mask(x[0], x[1])
         # |mask| = (batch_size, n)
         x = x[0]
 
+        # mask.unsqueeze(1) -> (batch_size, 1, n)
+        # mask.size(0) -> batch_size
+        # mask.size(1) -> length
+        # mask.size(-1) -> length
         mask_enc = mask.unsqueeze(1).expand(mask.size(0), x.size(1), mask.size(-1))
         mask_dec = mask.unsqueeze(1)
         # |mask_enc| = (batch_size, n, n)
@@ -397,11 +432,12 @@ class Transformer(nn.Module):
         # |y_t_1| = (batch_size, 1)
         is_decoding = x.new_ones(batch_size, 1).bool()
 
+        # prevs = 입력값 모음
         prevs = [None for _ in range(len(self.decoder._modules) + 1)]
         y_hats, indice = [], []
         # Repeat a loop while sum of 'is_decoding' flag is bigger than 0,
         # or current time-step is smaller than maximum length.
-        while is_decoding.sum() > 0 and len(indice) < max_length:
+        while is_decoding.sum() > 0 and len(indice) < max_length:   # for - output_length
             # Unlike training procedure,
             # take the last time-step's output during the inference.
             h_t = self.emb_dropout(
@@ -413,27 +449,41 @@ class Transformer(nn.Module):
             else:
                 prevs[0] = torch.cat([prevs[0], h_t], dim=1)
 
+            # for - layer
             for layer_index, block in enumerate(self.decoder._modules.values()):
                 prev = prevs[layer_index]
                 # |prev| = (batch_size, len(y_hats), hidden_size)
+                #   : 0 ~ 이전 time_step 까지의 출력값
+
+                # block(input)
+                #   h_t : 현재 layer의 현재 입력값 (이전layer의 출력값) (batch_size, 1, hidden_size)
+                #   z   : enc 전체 출력값 (batch_size, length, hidden_size)
+                #   mask_dec : 전체 입력값의 masking (batch_size, 1, length)
+                #   prev : 0~현재 입력값-1 까지의 출력값
 
                 h_t, _, _, _, _ = block(h_t, z, mask_dec, prev, None)
                 # |h_t| = (batch_size, 1, hidden_size)
 
+                # prevs : 현재 layer 의 출력값
                 if prevs[layer_index + 1] is None:
                     prevs[layer_index + 1] = h_t
                 else:
                     prevs[layer_index + 1] = torch.cat([prevs[layer_index + 1], h_t], dim=1)
                 # |prev| = (batch_size, len(y_hats) + 1, hidden_size)
 
+            # h_t : 현재 입력값의 모든 layer의 최종 출력값
             y_hat_t = self.generator(h_t)
             # |y_hat_t| = (batch_size, 1, output_size)
 
+            # y_hats : output_length 만큼의 array. ( output 의 각각 확률값 )
+            # 최종 |y_hats| = list[output_length] -> (batch_size, 1, output_size)
             y_hats += [y_hat_t]
+
             if is_greedy: # Argmax
                 y_t_1 = torch.topk(y_hat_t, 1, dim=-1)[1].squeeze(-1)
             else: # Random sampling                
                 y_t_1 = torch.multinomial(y_hat_t.exp().view(x.size(0), -1), 1)
+
             # Put PAD if the sample is done.
             y_t_1 = y_t_1.masked_fill_(
                 ~is_decoding,
@@ -444,12 +494,15 @@ class Transformer(nn.Module):
             is_decoding = is_decoding * torch.ne(y_t_1, data_loader.EOS)
             # |y_t_1| = (batch_size, 1)
             # |is_decoding| = (batch_size, 1)
+
             indice += [y_t_1]
+            # indice : voca index 
+            # 최종 indice : 전체 문장 (batch_size, output_lenght)
 
         y_hats = torch.cat(y_hats, dim=1)
         indice = torch.cat(indice, dim=-1)
         # |y_hats| = (batch_size, m, output_size)
-        # |indice| = (batch_size, m)
+        # |indice| = (batch_size, m) -> m : voca_index
 
         return y_hats, indice
 
