@@ -84,14 +84,16 @@ class SingleBeamSearchBoard():
         #     |prev_state_i| = (beam_size, length, hidden_size),
         #     where i is an index of layer.
 
-        print(f"get_batch - y_hat : {y_hat.shape}")
+        # print(f"get_batch - y_hat : {y_hat.shape}")
         # get_batch - y_hat : torch.Size([3, 1]) => [beam_size, 1]
-        print(f"y_hat : {y_hat}")
+
+        # print(f"y_hat : {y_hat}")
         # y_hat : tensor([[2], [2], [2]])       2 => <BOS>
+
         # prev_status : ['hidden_state', 'cell_state', 'h_t_1_tilde']
-        print(f"prev_status hidden_state : {self.prev_status['hidden_state'].shape}")
-        print(f"prev_status cell_state : {self.prev_status['cell_state'].shape}")
-        print(f"prev_status h_t_1_tilde : {self.prev_status['h_t_1_tilde'].shape if self.prev_status['h_t_1_tilde'] is not None else 'None'}")
+        # print(f"prev_status hidden_state : {self.prev_status['hidden_state'].shape}")
+        # print(f"prev_status cell_state : {self.prev_status['cell_state'].shape}")
+        # print(f"prev_status h_t_1_tilde : {self.prev_status['h_t_1_tilde'].shape if self.prev_status['h_t_1_tilde'] is not None else 'None'}")
 
         # hidden_state : torch.Size([4, 3, 768])    => [n_layers, beam_size, hidden_size]
         # cell_state : torch.Size([4, 3, 768])      => [n_layers, beam_size, hidden_size]
@@ -112,7 +114,7 @@ class SingleBeamSearchBoard():
         output_size = y_hat.size(-1)
 
         self.current_time_step += 1
-        print(f"current_time_step : {self.current_time_step}")
+        # print(f"current_time_step : {self.current_time_step}")
 
         # Calculate cumulative log-probability.
         # First, fill -inf value to last cumulative probability, if the beam is already finished.
@@ -120,15 +122,17 @@ class SingleBeamSearchBoard():
         # (beam_size) --> (beam_size, 1, 1) --> (beam_size, 1, output_size) = |y_hat|
         # Third, add expanded cumulative probability to 'y_hat'
 
-        print(f"masks : {self.masks}")
-        print(f"cumulative_probs : {self.cumulative_probs}")
+        # print(f"masks : {self.masks}")
+        # print(f"cumulative_probs : {self.cumulative_probs}")
+
         # masks : [tensor([False,False,False]),tensor([False,True,False])] => [current_time_step, beam_size, 1]
         # cumulative_probs : [tensor([0.,-inf,-inf]),tensor([-2.6131,-3.6800,-4.5125])] => [current_time_step, beam_size, 1]
 
         cumulative_prob = self.cumulative_probs[-1].masked_fill_(self.masks[-1], -float('inf'))
         cumulative_prob = y_hat + cumulative_prob.view(-1, 1, 1).expand(self.beam_size, 1, output_size)
         # |cumulative_prob| = (beam_size, 1, output_size)
-        print(f"cumulative_prob : {cumulative_prob}")
+
+        # print(f"cumulative_prob : {cumulative_prob}")
         # tensor([[[-394.6682,-402.9751,-399.8368,...,-382.3197,-447.5492,-281.3903]],
         # [[-inf,-inf,-inf,...,-inf,-inf,-inf]], [[-inf,-inf,-inf,...,-inf,-inf,-inf]]])
 
@@ -145,12 +149,12 @@ class SingleBeamSearchBoard():
 
         # Following lines are using torch.sort, instead of using torch.topk.
         top_log_prob, top_indice = cumulative_prob.view(-1).sort(descending=True)
-        print(f"top_log_prob 1 : {top_log_prob}, top_indice : {top_indice}")
+        # print(f"top_log_prob 1 : {top_log_prob}, top_indice : {top_indice}")
         # top_log_prob : tensor([-2.6131,-3.6799,-4.5126,...,-inf,-inf,-inf]),
         # top_indice : tensor([4,3,35,...,40112,40113,40114])
 
         top_log_prob, top_indice = top_log_prob[:self.beam_size], top_indice[:self.beam_size]
-        print(f"top_log_prob 2 : {top_log_prob}, top_indice : {top_indice}")
+        # print(f"top_log_prob 2 : {top_log_prob}, top_indice : {top_indice}")
         # top_log_prob: tensor([-2.6131, -3.6799, -4.5126]), top_indice: tensor([4, 3, 35])
 
         # |top_log_prob| = (beam_size,)
@@ -158,26 +162,26 @@ class SingleBeamSearchBoard():
 
         # Because we picked from whole batch, original word index should be calculated again.
         self.word_indice += [top_indice.fmod(output_size)]
-        print(f"word_indice : {self.word_indice}")
+        # print(f"word_indice : {self.word_indice}")
         # word_indice:[tensor([2,2,2]),tensor([4,3,35])] -> [tensor([2,2,2]),tensor([4,3,35]),tensor([4,3,4])]
 
         # Also, we can get an index of beam, which has top-k log-probability search result.
         self.beam_indice += [top_indice.div(float(output_size)).long()]
-        print(f"beam_indice : {self.beam_indice}")
+        # print(f"beam_indice : {self.beam_indice}")
         # beam_indice:[tensor([-1,-1,-1]),tensor([0,0,0])] -> [tensor([-1,-1,-1]),tensor([0,0,0]),tensor([0,0,2])]
 
         # Add results to history boards.
         self.cumulative_probs += [top_log_prob]
-        print(f"history cumulative_probs : {self.cumulative_probs}")
+        # print(f"history cumulative_probs : {self.cumulative_probs}")
         # cumulative_probs : [tensor([0.,-inf,-inf]),tensor([-2.6131,-inf,-4.5125]),tensor([-5.2262,-inf,-7.1255])]
 
         self.masks += [torch.eq(self.word_indice[-1], data_loader.EOS)]     # Set finish mask if we got EOS.
-        print(f"history masks : {self.masks}")
+        # print(f"history masks : {self.masks}")
         # masks : [tensor([False,False,False]),tensor([False,True,False]),tensor([False,True,False])]
 
         # Calculate a number of finished beams.
         self.done_cnt += self.masks[-1].float().sum()
-        print(f"done_cnt : {self.done_cnt}")
+        # print(f"done_cnt : {self.done_cnt}")
 
         # In beam search procedure, we only need to memorize latest status.
         # For seq2seq, it would be lastest hidden and cell state, and h_t_tilde.
@@ -203,23 +207,25 @@ class SingleBeamSearchBoard():
                     probs += [self.cumulative_probs[t][b] * self.get_length_penalty(t, alpha=length_penalty)]
                     founds += [(t, b)]
 
-                    print(f"cumulative_probs[{t}][{b}] : {self.cumulative_probs[t][b]}")
-                    print(f"get_length_penalty({t}) : {self.get_length_penalty(t, alpha=length_penalty)}")
-                    print(f"probs : {probs}")       # [tensor(-inf),tensor(-inf),tensor(-6.3061)]
-                    print(f"founds : {founds}")     # [(1,1),(2,1),(3,1)]
+                    # print(f"cumulative_probs[{t}][{b}] : {self.cumulative_probs[t][b]}")
+                    # print(f"get_length_penalty({t})    : {self.get_length_penalty(t, alpha=length_penalty)}")
+                    # print(f"probs : {probs}")       # [tensor(-inf),tensor(-inf),tensor(-6.3061)]
+                    # print(f"founds : {founds}")     # [(1,1),(2,1),(3,1)]
 
         # Also, collect log-probability from last time-step, for the case of EOS is not shown.
         for b in range(self.beam_size):
             if self.cumulative_probs[-1][b] != -float('inf'):   # If this beam does not have EOS,
-                print(f"cumulative_probs[-1][{b}] : {self.cumulative_probs[-1][b]}")
+                # print(f"cumulative_probs[-1][{b}] : {self.cumulative_probs[-1][b]}")
+
                 if not (len(self.cumulative_probs) - 1, b) in founds:
                     probs += [self.cumulative_probs[-1][b] * self.get_length_penalty(len(self.cumulative_probs),
                                                                                      alpha=length_penalty)]
                     founds += [(t, b)]
 
-                    print(f"get_length_penalty : {self.get_length_penalty(len(self.cumulative_probs),alpha=length_penalty)}")
-                    print(f"probs : {probs}")       # [tensor(-inf),tensor(-inf),tensor(-6.3061),tensor(-4.8190),tensor(-5.9867)]
-                    print(f"founds : {founds}")     # [(1,1),(2,1),(3,1),(3,0),(3,2)]
+                    # print(f"get_length_penalty : {self.get_length_penalty(len(self.cumulative_probs),alpha=length_penalty)}")
+                    # cumulative_probs[-1][1] : -8.906155586242676, get_length_penalty : 0.6147386076544852
+                    # print(f"probs : {probs}")       # [tensor(-inf),tensor(-inf),tensor(-6.3061),tensor(-4.8190),tensor(-5.9867)]
+                    # print(f"founds : {founds}")     # [(1,1),(2,1),(3,1),(3,0),(3,2)]
 
         # Sort and take n-best.
         sorted_founds_with_probs = sorted(
@@ -243,7 +249,7 @@ class SingleBeamSearchBoard():
         print(f"sentences : {sentences}")
         print(f"probs : {probs}")
 
-        # sentences : [[tensor(4),tensor(4),tensor(4)]]
+        # sentences : [[tensor(4),tensor(4),tensor(4)]] => ...
         # probs : [tensor(-4.8190)]
 
         return sentences, probs
