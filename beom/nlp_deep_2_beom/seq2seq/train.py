@@ -11,7 +11,7 @@ from simple_nmt.data_loader import DataLoader
 import simple_nmt.data_loader as data_loader
 
 from simple_nmt.models.seq2seq import Seq2Seq
-#from simple_nmt.models.transformer import Transformer
+from simple_nmt.models.transformer import Transformer
 #from simple_nmt.models.rnnlm import LanguageModel
 
 from simple_nmt.trainer import SingleTrainer
@@ -217,7 +217,6 @@ def define_argparser(is_continue=False):
 
 def get_model(input_size, output_size, config):
     if config.use_transformer:
-        '''
         model = Transformer(
             input_size,                     # Source vocabulary size
             config.hidden_size,             # Transformer doesn't need word_vec_size.
@@ -227,7 +226,6 @@ def get_model(input_size, output_size, config):
             n_dec_blocks=config.n_layers,   # Number of decoder blocks
             dropout_p=config.dropout,       # Dropout rate on each block
         )
-        '''
     else:
 
         model = Seq2Seq(
