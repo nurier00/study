@@ -25,12 +25,19 @@ class SingleBeamSearchBoard():
         self.device = device
         # Inferred word index for each time-step. For now, initialized with initial time-step.
         self.word_indice = [torch.LongTensor(beam_size).zero_().to(self.device) + data_loader.BOS]
+        # word_indice : [tensor([2, 2, 2])]     =>  2 = BOS
+
         # Beam index for selected word index, at each time-step.
         self.beam_indice = [torch.LongTensor(beam_size).zero_().to(self.device) - 1]
+        # beam_indice : [tensor([-1, -1, -1])]
+
         # Cumulative log-probability for each beam.
         self.cumulative_probs = [torch.FloatTensor([.0] + [-float('inf')] * (beam_size - 1)).to(self.device)]
+        # cumulative_probs = [tensor([0., -inf, -inf])]
+
         # 1 if it is done else 0
         self.masks = [torch.BoolTensor(beam_size).zero_().to(self.device)]
+        # masks = [tensor([False, False, False])]
 
         # We don't need to remember every time-step of hidden states:
         #       prev_hidden, prev_cell, prev_h_t_tilde
@@ -77,33 +84,51 @@ class SingleBeamSearchBoard():
     def get_batch(self):
         y_hat = self.word_indice[-1].unsqueeze(-1)
         # |y_hat| = (beam_size, 1)
+
+        # print(f"word indice : {self.word_indice}")
+        # word indice : [tensor([2, 2, 2])]
+        # print(f"y_hat : {y_hat}")
+        # y_hat : tensor([[2], [2], [2]])       2 => <BOS>
+        # print(f"y_hat shape : {y_hat.shape}")
+        # y_hat shape : torch.Size([3, 1]) => [beam_size, 1]
+
         # if model != transformer:
         #     |hidden| = |cell| = (n_layers, beam_size, hidden_size)
         #     |h_t_tilde| = (beam_size, 1, hidden_size) or None
+        #
+        #     prev_status : ['hidden_state', 'cell_state', 'h_t_1_tilde']
+        #     print(f"prev_status hidden_state : {self.prev_status['hidden_state'].shape}")
+        #     print(f"prev_status cell_state : {self.prev_status['cell_state'].shape}")
+        #     print(f"prev_status h_t_1_tilde : {self.prev_status['h_t_1_tilde'].shape if self.prev_status['h_t_1_tilde'] is not None else 'None'}")
+        #
+        #     hidden_state : torch.Size([4, 3, 768])    => [n_layers, beam_size, hidden_size]
+        #     cell_state : torch.Size([4, 3, 768])      => [n_layers, beam_size, hidden_size]
+        #     h_t_1_tilde : None -> torch.Size([3, 1, 768])    => [beam_size, 1, hidden_size]
+        #
         # else:
         #     |prev_state_i| = (beam_size, length, hidden_size),
         #     where i is an index of layer.
-
-        # print(f"get_batch - y_hat : {y_hat.shape}")
-        # get_batch - y_hat : torch.Size([3, 1]) => [beam_size, 1]
-
-        # print(f"y_hat : {y_hat}")
-        # y_hat : tensor([[2], [2], [2]])       2 => <BOS>
-
-        # prev_status : ['hidden_state', 'cell_state', 'h_t_1_tilde']
-        # print(f"prev_status hidden_state : {self.prev_status['hidden_state'].shape}")
-        # print(f"prev_status cell_state : {self.prev_status['cell_state'].shape}")
-        # print(f"prev_status h_t_1_tilde : {self.prev_status['h_t_1_tilde'].shape if self.prev_status['h_t_1_tilde'] is not None else 'None'}")
-
-        # hidden_state : torch.Size([4, 3, 768])    => [n_layers, beam_size, hidden_size]
-        # cell_state : torch.Size([4, 3, 768])      => [n_layers, beam_size, hidden_size]
-        # h_t_1_tilde : None -> torch.Size([3, 1, 768])    => [beam_size, 1, hidden_size]
+        #
+        #     n_layer = 4 일 경우
+        #     prev_status : ['prev_state_0', 'prev_state_1', 'prev_state_2', 'prev_state_3', 'prev_state_4']
+        #     for i in range(len(self.prev_status)):
+        #         prev_state = 'prev_state_' + str(i)
+        #         print(f"prev_status {i} : {self.prev_status[prev_state].shape if self.prev_status[prev_state] is not None else ''}")
+        #
+        #     prev_status 0 : torch.Size([3, 1, 768])   => [beam_size, 1, hidden_size]
+        #     prev_status 1 : torch.Size([3, 1, 768])   => [beam_size, 1, hidden_size]
+        #     prev_status 2 : torch.Size([3, 1, 768])   => [beam_size, 1, hidden_size]
+        #     prev_status 3 : torch.Size([3, 1, 768])   => [beam_size, 1, hidden_size]
+        #     prev_status 4 : torch.Size([3, 1, 768])   => [beam_size, 1, hidden_size]
 
         return y_hat, self.prev_status
 
-    #@profile
+    # @profile
     def collect_result(self, y_hat, prev_status):
+        # print(f"y_hat shape : {y_hat.shape}")
+        # y_hat shape: torch.Size([3, 1, 6249])
         # |y_hat| = (beam_size, 1, output_size)
+
         # prev_status is a dict, which has following keys:
         # if model != transformer:
         #     |hidden| = |cell| = (n_layers, beam_size, hidden_size)
@@ -111,6 +136,7 @@ class SingleBeamSearchBoard():
         # else:
         #     |prev_state_i| = (beam_size, length, hidden_size),
         #     where i is an index of layer.
+
         output_size = y_hat.size(-1)
 
         self.current_time_step += 1
@@ -125,8 +151,8 @@ class SingleBeamSearchBoard():
         # print(f"masks : {self.masks}")
         # print(f"cumulative_probs : {self.cumulative_probs}")
 
-        # masks : [tensor([False,False,False]),tensor([False,True,False])] => [current_time_step, beam_size, 1]
-        # cumulative_probs : [tensor([0.,-inf,-inf]),tensor([-2.6131,-3.6800,-4.5125])] => [current_time_step, beam_size, 1]
+        # masks :       [tensor([False, False, False])] => tensor([3]) = beam_size
+        # cumulative_probs : [tensor([0., -inf, -inf])] => tensor([3]) = beam_size
 
         cumulative_prob = self.cumulative_probs[-1].masked_fill_(self.masks[-1], -float('inf'))
         cumulative_prob = y_hat + cumulative_prob.view(-1, 1, 1).expand(self.beam_size, 1, output_size)
@@ -149,12 +175,12 @@ class SingleBeamSearchBoard():
 
         # Following lines are using torch.sort, instead of using torch.topk.
         top_log_prob, top_indice = cumulative_prob.view(-1).sort(descending=True)
-        # print(f"top_log_prob 1 : {top_log_prob}, top_indice : {top_indice}")
+        # print(f"top_log_prob : {top_log_prob}, top_indice : {top_indice}")
         # top_log_prob : tensor([-2.6131,-3.6799,-4.5126,...,-inf,-inf,-inf]),
         # top_indice : tensor([4,3,35,...,40112,40113,40114])
 
         top_log_prob, top_indice = top_log_prob[:self.beam_size], top_indice[:self.beam_size]
-        # print(f"top_log_prob 2 : {top_log_prob}, top_indice : {top_indice}")
+        # print(f"top_log_prob : {top_log_prob}, top_indice : {top_indice}")
         # top_log_prob: tensor([-2.6131, -3.6799, -4.5126]), top_indice: tensor([4, 3, 35])
 
         # |top_log_prob| = (beam_size,)
@@ -162,13 +188,15 @@ class SingleBeamSearchBoard():
 
         # Because we picked from whole batch, original word index should be calculated again.
         self.word_indice += [top_indice.fmod(output_size)]
+        # .fmod() : 부동소수점 연산 -> 나머지 연산과 동일하되 +,- 부호를 그대로 가져옴
+
         # print(f"word_indice : {self.word_indice}")
-        # word_indice:[tensor([2,2,2]),tensor([4,3,35])] -> [tensor([2,2,2]),tensor([4,3,35]),tensor([4,3,4])]
+        # word_indice : [tensor([2,2,2]),tensor([4,3,35])] -> [tensor([2,2,2]),tensor([4,3,35]),tensor([4,3,4])]
 
         # Also, we can get an index of beam, which has top-k log-probability search result.
         self.beam_indice += [top_indice.div(float(output_size)).long()]
         # print(f"beam_indice : {self.beam_indice}")
-        # beam_indice:[tensor([-1,-1,-1]),tensor([0,0,0])] -> [tensor([-1,-1,-1]),tensor([0,0,0]),tensor([0,0,2])]
+        # beam_indice : [tensor([-1,-1,-1]),tensor([0,0,0])] -> [tensor([-1,-1,-1]),tensor([0,0,0]),tensor([0,0,2])]
 
         # Add results to history boards.
         self.cumulative_probs += [top_log_prob]
@@ -184,11 +212,11 @@ class SingleBeamSearchBoard():
         # print(f"done_cnt : {self.done_cnt}")
 
         # In beam search procedure, we only need to memorize latest status.
-        # For seq2seq, it would be lastest hidden and cell state, and h_t_tilde.
+        # For seq2seq, it would be latest hidden and cell state, and h_t_tilde.
         # The problem is hidden(or cell) state and h_t_tilde has different dimension order.
         # In other words, a dimension for batch index is different.
         # Therefore self.batch_dims stores the dimension index for batch index.
-        # For transformer, lastest status is each layer's decoder output from the biginning.
+        # For transformer, latest status is each layer's decoder output from the beginning.
         # Unlike seq2seq, transformer has to memorize every previous output for attention operation.
         for prev_status_name, prev_status in prev_status.items():
             self.prev_status[prev_status_name] = torch.index_select(
@@ -209,13 +237,17 @@ class SingleBeamSearchBoard():
 
                     # print(f"cumulative_probs[{t}][{b}] : {self.cumulative_probs[t][b]}")
                     # print(f"get_length_penalty({t})    : {self.get_length_penalty(t, alpha=length_penalty)}")
-                    # print(f"probs : {probs}")       # [tensor(-inf),tensor(-inf),tensor(-6.3061)]
-                    # print(f"founds : {founds}")     # [(1,1),(2,1),(3,1)]
+                    # print(f"had EOS probs : {probs}")       # [tensor(-inf), tensor(-7.3420), tensor(-7.4389)]
+                    # print(f"had EOS founds : {founds}")     # [(1, 1), (2, 0), (2, 2)]
 
         # Also, collect log-probability from last time-step, for the case of EOS is not shown.
         for b in range(self.beam_size):
             if self.cumulative_probs[-1][b] != -float('inf'):   # If this beam does not have EOS,
-                # print(f"cumulative_probs[-1][{b}] : {self.cumulative_probs[-1][b]}")
+
+                # print(f"cumulative_probs : {self.cumulative_probs}")
+                # [tensor([0., -inf, -inf]), tensor([-4.4934, -inf, -4.8619]), tensor([-8.8338, -8.8975, -8.9504])]
+                # print(f"_founds : {founds}")
+                # [(1, 1), (2, 0), (2, 2)]
 
                 if not (len(self.cumulative_probs) - 1, b) in founds:
                     probs += [self.cumulative_probs[-1][b] * self.get_length_penalty(len(self.cumulative_probs),
@@ -224,8 +256,11 @@ class SingleBeamSearchBoard():
 
                     # print(f"get_length_penalty : {self.get_length_penalty(len(self.cumulative_probs),alpha=length_penalty)}")
                     # cumulative_probs[-1][1] : -8.906155586242676, get_length_penalty : 0.6147386076544852
-                    # print(f"probs : {probs}")       # [tensor(-inf),tensor(-inf),tensor(-6.3061),tensor(-4.8190),tensor(-5.9867)]
-                    # print(f"founds : {founds}")     # [(1,1),(2,1),(3,1),(3,0),(3,2)]
+                    # print(f"probs : {probs}")       # [tensor(-inf), tensor(-7.3420), tensor(-7.4389), tensor(-6.3000)]
+                    # print(f"founds : {founds}")     # [(1, 1), (2, 0), (2, 2), (2, 1)]
+
+        # print(f"probs : {probs}")       # [tensor(-inf), tensor(-7.3420), tensor(-7.4389), tensor(-6.3000)]
+        # print(f"founds : {founds}")     # [(1, 1), (2, 0), (2, 2), (2, 1)]
 
         # Sort and take n-best.
         sorted_founds_with_probs = sorted(
@@ -235,6 +270,8 @@ class SingleBeamSearchBoard():
         )[:n]
         probs = []
 
+        # print(f"sorted_founds_with_probs : {sorted_founds_with_probs}")
+        # [((2, 1), tensor(-6.3000))] => end_index : 2
         for (end_index, b), prob in sorted_founds_with_probs:
             sentence = []
 
@@ -246,10 +283,10 @@ class SingleBeamSearchBoard():
             sentences += [sentence]
             probs += [prob]
 
-        print(f"sentences : {sentences}")
-        print(f"probs : {probs}")
+        # print(f"sentences : {sentences}")
+        # print(f"probs : {probs}")
 
-        # sentences : [[tensor(4),tensor(4),tensor(4)]] => ...
-        # probs : [tensor(-4.8190)]
+        # sentences : [[tensor(5), tensor(5)]] => ▁, ▁,
+        # probs : [tensor(-6.3000)]
 
         return sentences, probs
