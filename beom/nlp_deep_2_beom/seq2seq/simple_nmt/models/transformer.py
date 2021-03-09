@@ -344,7 +344,7 @@ class Transformer(nn.Module):
         return mask
 
     def forward(self, x, y):
-        print("# [transformer.py - Transformer.forward] start")
+        #print("# [transformer.py - Transformer.forward] start")
         # |x[0]| = (batch_size, n)
         # |y|    = (batch_size, m)
 
@@ -395,7 +395,7 @@ class Transformer(nn.Module):
 
             # |fwd_mask| = (batch_size, m, m)
 
-        print("# [transformer.py - Transformer.forward] len(self.decoder._modules) + 1 : ", (len(self.decoder._modules) + 1))
+        #print("# [transformer.py - Transformer.forward] len(self.decoder._modules) + 1 : ", (len(self.decoder._modules) + 1))
         h = self.emb_dropout(self._position_encoding(self.emb_dec(y)))
         h, _, _, _, _ = self.decoder(h, z, mask_dec, None, future_mask)
         # |h| = (batch_size, m, hidden_size)

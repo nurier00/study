@@ -30,7 +30,7 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
         # This method gets the reward based on the sampling result and reference sentence.
         # For now, we uses GLEU in NLTK, but you can used your own well-defined reward function.
         # In addition, GLEU is variation of BLEU, and it is more fit to reinforcement learning.
-        sf = SmoothingFunction()
+        sf = SmoothingFunction() # 
         score_func = {
             'gleu':  lambda ref, hyp: sentence_gleu([ref], hyp, max_len=n_gram),
             'bleu1': lambda ref, hyp: sentence_bleu([ref], hyp,
@@ -53,14 +53,19 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
         with torch.no_grad():
             scores = []
 
+            # y.size(0) : batch_size
             for b in range(y.size(0)):
                 ref, hyp = [], []
+                # y.size(-1) : length
                 for t in range(y.size(-1)):
+                    # 각 voca를 배열에 저장
                     ref += [str(int(y[b, t]))]
                     if y[b, t] == data_loader.EOS:
                         break
 
+                # y_hat.size(-1) : length
                 for t in range(y_hat.size(-1)):
+                    # 각 voca를 배열에 저장
                     hyp += [str(int(y_hat[b, t]))]
                     if y_hat[b, t] == data_loader.EOS:
                         break
@@ -114,6 +119,9 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
 
     @staticmethod
     def train(engine, mini_batch):
+        print("# [rl_trainer.py - MinimumRiskTrainingEngine.train] start")
+
+        #### Gradient Accumulations
         # You have to reset the gradients of all model parameters
         # before to take another step in gradient descent.
         engine.model.train()
@@ -132,6 +140,10 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
         x, y = mini_batch.src, mini_batch.tgt[0][:, 1:]
         # |x| = (batch_size, length)
         # |y| = (batch_size, length)
+        print("# [rl_trainer.py - MinimumRiskTrainingEngine.train] x")
+        print(x)
+        print("# [rl_trainer.py - MinimumRiskTrainingEngine.train] y")
+        print(y)
 
         # Take sampling process because set False for is_greedy.
         y_hat, indice = engine.model.search(
@@ -139,6 +151,9 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
             is_greedy=False,
             max_length=engine.config.max_length
         )
+        print("# [rl_trainer.py - MinimumRiskTrainingEngine.train] y_hat.size(), indice", y_hat.size(), indice.size())
+        print("# [rl_trainer.py - MinimumRiskTrainingEngine.train] result indice")
+        print(indice)
 
         with torch.no_grad():
             # Based on the result of sampling, get reward.
@@ -150,12 +165,13 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
             )
             # |y_hat| = (batch_size, length, output_size)
             # |indice| = (batch_size, length)
-            # |actor_reward| = (batch_size)
+            # |actor_reward| = (batch_size)  : score 
 
             # Take samples as many as n_samples, and get average rewards for them.
             # I figured out that n_samples = 1 would be enough.
             baseline = []
 
+            # engine.config.rl_n_samples : rl_epoch
             for _ in range(engine.config.rl_n_samples):
                 _, sampled_indice = engine.model.search(
                     x,
@@ -185,12 +201,15 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
             indice,
             reward=reward
         )
+
+        #### Gradient Accumulations
         backward_target = loss.div(y.size(0)).div(engine.config.iteration_per_update)
         backward_target.backward()
 
         p_norm = float(get_parameter_norm(engine.model.parameters()))
         g_norm = float(get_grad_norm(engine.model.parameters()))
 
+        #### Gradient Accumulations
         if engine.state.iteration % engine.config.iteration_per_update == 0 and \
             engine.state.iteration > 0:
             # In orther to avoid gradient exploding, we apply gradient clipping.
