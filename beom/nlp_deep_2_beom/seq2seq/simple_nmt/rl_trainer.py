@@ -88,6 +88,9 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
         batch_size = indice.size(0)
         output_size = y_hat.size(-1)
 
+        # y_hat = sampling inference
+        # indice = (epoch (baseline inference).mean
+
         '''
         # Memory inefficient but more readable version
         mask = indice == data_loader.PAD
@@ -109,7 +112,12 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
             reduction='none'
         ).view(batch_size, -1).sum(dim=-1)
 
+        ## 기존 likelihood 방식은 예측값과 결과값을 비교
+        
+        ## sampling 결과와 logsoftmax결과를 곱한다
+
         loss = (log_prob * -reward).sum()
+        ## reward = actor_reward - baseline
         # Following two equations are eventually same.
         # \theta = \theta - risk * \nabla_\theta \log{P}
         # \theta = \theta - -reward * \nabla_\theta \log{P}
@@ -187,6 +195,7 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
                     )
                 ]
 
+            # value function 
             baseline = torch.stack(baseline).mean(dim=0)
             # |baseline| = (n_samples, batch_size) --> (batch_size)
 
