@@ -45,7 +45,7 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
         }[method]
 
         # Since we don't calculate reward score exactly as same as multi-bleu.perl,
-        # (especialy we do have different tokenization,) I recommend to set n_gram to 6.
+        # (especially we do have different tokenization,) I recommend to set n_gram to 6.
 
         # |y| = (batch_size, length1)
         # |y_hat| = (batch_size, length2)
@@ -53,7 +53,7 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
         with torch.no_grad():
             scores = []
 
-            for b in range(y.size(0)):
+            for b in range(y.size(0)):  # batch_size 만큼
                 ref, hyp = [], []
                 for t in range(y.size(-1)):
                     ref += [str(int(y[b, t]))]
@@ -67,6 +67,10 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
                 # Below lines are slower than naive for loops in above.
                 # ref = y[b].masked_select(y[b] != data_loader.PAD).tolist()
                 # hyp = y_hat[b].masked_select(y_hat[b] != data_loader.PAD).tolist()
+
+                # y 와 y_hat 의 인덱스가 각 문장길이만큼 list 로 들어가 있음
+                # |ref| = (length)
+                # |hyp| = (length)
 
                 scores += [score_func(ref, hyp) * 100.]
             scores = torch.FloatTensor(scores).to(y.device)
@@ -104,6 +108,9 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
             reduction='none'
         ).view(batch_size, -1).sum(dim=-1)
 
+        print(f"log_prob : {log_prob}")
+        print(f"log_prob shape : {log_prob.shape}")
+
         loss = (log_prob * -reward).sum()
         # Following two equations are eventually same.
         # \theta = \theta - risk * \nabla_\theta \log{P}
@@ -140,6 +147,7 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
             max_length=engine.config.max_length
         )
 
+        # policy gradient 로 인해 미분이 일어나지 않음
         with torch.no_grad():
             # Based on the result of sampling, get reward.
             actor_reward = MinimumRiskTrainingEngine._get_reward(

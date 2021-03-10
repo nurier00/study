@@ -219,8 +219,8 @@ class SingleBeamSearchBoard():
                     probs += [self.cumulative_probs[t][b] * self.get_length_penalty(t, alpha=length_penalty)]
                     founds += [(t, b)]
 
-                    # probs : [tensor(-inf), tensor(-7.3420), tensor(-7.4389)]
-                    # founds : [(1, 1), (2, 0), (2, 2)] => [(time-step, beam_index)]
+        # probs : [tensor(-inf), tensor(-7.3420), tensor(-7.4389)]
+        # founds : [(1, 1), (2, 0), (2, 2)] => [(time-step, beam_index)]
 
         # Also, collect log-probability from last time-step, for the case of EOS is not shown.
         # 문장이 아직 끝나지 않았을 경우 (<EOS> 토큰이 나오지 않은 경우), 마지막 time-step 의 누적확률을 수집
@@ -237,11 +237,8 @@ class SingleBeamSearchBoard():
 
                     # cumulative_probs[-1][1] : -8.906155586242676, get_length_penalty : 0.6147386076544852
 
-                    # probs  : [tensor(-inf), tensor(-7.3420), tensor(-7.4389), tensor(-6.3000)]
-                    # founds : [(1, 1), (2, 0), (2, 2), (2, 1)]
-
-        # print(f"probs : {probs}")       # [tensor(-inf), tensor(-7.3420), tensor(-7.4389), tensor(-6.3000)]
-        # print(f"founds : {founds}")     # [(1, 1), (2, 0), (2, 2), (2, 1)]
+        # probs  : [tensor(-inf), tensor(-7.3420), tensor(-7.4389), tensor(-6.3000)]
+        # founds : [(1, 1), (2, 0), (2, 2), (2, 1)]
 
         # Sort and take n-best.
         sorted_founds_with_probs = sorted(
