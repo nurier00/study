@@ -56,6 +56,9 @@ class DualSupervisedTrainingEngine(Engine):
         # Thus, we need to re-order the samples in mini-batch, if src and tgt is reversed.
         # (Because originally src and tgt are sorted by the length of samples in src.)
 
+        # packed sequence 를 사용하기 때문에 sample 미니배치는 늘 길이가 긴 것부터 정렬되어 있어야 함
+        # 따라서 x 에 맞추어 정렬이 되어 있었던 배치를 y 의 미니배치가 길이가 긴 것부터 정렬 되도록 y 에 맞추어 재정렬 해주어야함
+
         # sort by length.
         indice = l.sort(descending=True)[1]
 
@@ -64,32 +67,85 @@ class DualSupervisedTrainingEngine(Engine):
         y_ = y.index_select(dim=0, index=indice).contiguous()
         l_ = l.index_select(dim=0, index=indice).contiguous()
 
+        # x_ shape : torch.Size([64, 43]) => [bs, length]
+        # 각 문장의 vocab 인덱스로 구성되어진 텐서
+        '''
+        x_ : tensor([[   2,   18,  525,  ..., 5194,    6,    3],
+        [   2,   42,    5,  ...,    6,    3,    1],
+        [   2,   18,  325,  ..., 2982,    6,    3],
+        ...,
+        [   2,   51, 1126,  ...,    6,   17,    3],
+        [   2,   18,  701,  ..., 1510,    6,    3],
+        [   2,   97,  329,  ..., 5046,    6,    3]])
+        '''
+
+        # y_ shape : torch.Size([64, 60]) => [bs, length]
+        '''
+        y_ : tensor([[ 460,   40, 1093,  ...,  541,   30,    4],
+        [ 228,  201,   40,  ...,    1,    1,    1],
+        [ 732,  573, 2919,  ...,    1,    1,    1],
+        ...,
+        [1497,  815,  191,  ...,    1,    1,    1],
+        [ 913,  443, 2242,  ...,    1,    1,    1],
+        [ 503, 3259,  516,  ...,    1,    1,    1]])
+        '''
+
+        # l_ : torch.Size([64]) => [bs]
+        '''
+        l_ : tensor([60, 56, 53, 52, 52, 49, 48, 47, 46, 46, 45, 44, 44, 44, 43, 43, 43, 43,
+        42, 42, 42, 41, 41, 41, 41, 40, 40, 40, 39, 39, 39, 39, 39, 38, 38, 38,
+        38, 38, 37, 37, 37, 37, 37, 37, 37, 37, 37, 36, 36, 35, 35, 35, 35, 34,
+        34, 34, 34, 34, 34, 34, 32, 32, 32, 30])
+        '''
+
         # generate information to restore the re-ordering.
         restore_indice = indice.sort(descending=False)[1]
+        # restore_indice shape : torch.Size([64]) => [bs]
+        '''
+        restore_indice : tensor([27, 30, 29, 34, 31, 33, 41, 40, 45, 46, 49, 53, 58, 60,  0,  4,  3,  7,
+         8, 14, 13, 12, 17, 21, 24, 23, 22, 25, 26, 36, 35, 38, 47, 50, 51, 48,
+        52, 54, 55, 56, 57, 59, 61, 62, 63,  1,  2,  5,  6, 10,  9, 16, 15, 11,
+        20, 18, 19, 28, 37, 32, 43, 42, 39, 44])
+        '''
 
         return x_, (y_, l_), restore_indice
 
     @staticmethod
     def _restore_order(x, restore_indice):
+        # reorder 시켜주었던 배치를 원래대로 x 에 맞추어 정렬 원상복구 시켜줌
         return x.index_select(dim=0, index=restore_indice)
 
     @staticmethod
     def _get_loss(x, y, x_hat, y_hat, crits, x_lm=None, y_lm=None, lagrange=1e-3):
+        # 실제 정답의 원핫인덱스가 들어있는 텐서
         # |x| = (batch_size, n)
         # |y| = (batch_size, m)
-        # |x_hat| = (batch_size, n, output_size0)
-        # |y_hat| = (batch_size, m, output_size1)
+
+        # seq2seq 로 부터 나온 log likely-hood, 즉, 로그확률분포
+        # |x_hat| = (batch_size, n, output_size0) -> log P (x|y)
+        # |y_hat| = (batch_size, m, output_size1) -> log P (y|x)
+
+        # log P x 를 위한 샘플별 스텝별 로그 확률값
         # |x_lm| = |x_hat|
+        # log P y 를 위한 샘플별 스텝별 로그 확률값
         # |y_lm| = |y_hat|
 
         log_p_y_given_x = -crits[X2Y](
             y_hat.contiguous().view(-1, y_hat.size(-1)),
             y.contiguous().view(-1),
         )
+        # y_hat.view() : torch.Size([3835, 6249])   => [bs * m, output_size1]
+        # y.view() : torch.Size([3835])             => [bs * m]
+        # log_p_y_given_x shape : torch.Size([3835])
+
         log_p_x_given_y = -crits[Y2X](
             x_hat.contiguous().view(-1, x_hat.size(-1)),
             x.contiguous().view(-1),
         )
+        # x_hat.view() : torch.Size([3835, 8101])   => [bs * n, output_size0]
+        # x.view() : torch.Size([3835])             => [bs * n]
+        # log_p_x_given_y shape : torch.Size([3835])
+
         # |log_p_y_given_x| = (batch_size * m)
         # |log_p_x_given_y| = (batch_size * n)
 
@@ -138,6 +194,7 @@ class DualSupervisedTrainingEngine(Engine):
         for language_model, model, optimizer in zip(engine.language_models,
                                                     engine.models,
                                                     engine.optimizers):
+            # language_model 은 이미 pre-training 한 상태, 다시 train X
             language_model.eval()
             model.train()
             if engine.state.iteration % engine.config.iteration_per_update == 1 or \
@@ -150,29 +207,36 @@ class DualSupervisedTrainingEngine(Engine):
         mini_batch.tgt = (mini_batch.tgt[0].to(device), mini_batch.tgt[1].to(device))
         
         with autocast(not engine.config.off_autocast):
-            # X2Y
+            # X2Y => data loader 에서 넘어온 형태, 구현이 짧음
+            # x 는 Encoder 에 들어갈 값이므로 <BOS>, <EOS> 를 제거해줌, Decoder 에 들어갈 y 는 <EOS> 를 제거
             x, y = (mini_batch.src[0][:, 1:-1], mini_batch.src[1] - 2), mini_batch.tgt[0][:, :-1]
             x_hat_lm, y_hat_lm = None, None
             # |x| = (batch_size, n)
             # |y| = (batch_size, m)
+
+            # teacher Forcing
             y_hat = engine.models[X2Y](x, y)
             # |y_hat| = (batch_size, m, y_vocab_size)
+            # y_hat 에는 각 미니배치의 샘플별 각 타임스텝별 각 단어별 확률값이 들어있음
             
-            if engine.state.epoch > engine.config.dsl_n_warmup_epochs:
-                with torch.no_grad():
-                    y_hat_lm = engine.language_models[X2Y](y)
-                    # |y_hat_lm| = |y_hat|
+            if engine.state.epoch > engine.config.dsl_n_warmup_epochs:  # warmup 상태가 지났는지 확인
+                with torch.no_grad():                                   # warmup 상태가 끝이나면 gradient 계산 X
+                    y_hat_lm = engine.language_models[X2Y](y)           # log P (y)
+                    # |y_hat_lm| = |y_hat| = (batch_size, m, y_vocab_size)
 
             #Y2X
             # Since encoder in seq2seq takes packed_sequence instance,
             # we need to re-sort if we use reversed src and tgt.
+
+            # 정렬이 X2Y 기준으로 되어있기 때문에 재정렬 필요
             x, y, restore_indice = DualSupervisedTrainingEngine._reorder(
-                mini_batch.src[0][:, :-1],
-                mini_batch.tgt[0][:, 1:-1],
+                mini_batch.src[0][:, :-1],      # => Decoder 에 들어가야 하기 때문에 <EOS> 를 제거
+                mini_batch.tgt[0][:, 1:-1],     # => Encoder 에 들어가야 하기 때문에 <BOS>, <EOS> 를 제거
                 mini_batch.tgt[1] - 2,
             )
             # |x| = (batch_size, n)
             # |y| = (batch_size, m)
+
             x_hat = DualSupervisedTrainingEngine._restore_order(
                 engine.models[Y2X](y, x),
                 restore_indice=restore_indice,
@@ -187,6 +251,7 @@ class DualSupervisedTrainingEngine(Engine):
                     )
                     # |x_hat_lm| = |x_hat|
 
+            # Decoder 의 정답으로 쓰일 x, y 이기 때문에 둘 다 <BOS> 를 제거
             x, y = mini_batch.src[0][:, 1:], mini_batch.tgt[0][:, 1:]
             loss_x2y, loss_y2x, dual_loss = DualSupervisedTrainingEngine._get_loss(
                 x, y,
@@ -196,6 +261,7 @@ class DualSupervisedTrainingEngine(Engine):
                 # According to the paper, DSL should be warm-started.
                 # Thus, we turn-off the regularization at the beginning.
                 lagrange=engine.config.dsl_lambda if engine.state.epoch > engine.config.dsl_n_warmup_epochs else .0
+                # 라그랑쥬는 warmup 단계에서는 0 warmup 단계가 끝난경우 실제 lambda 값을 넣어줌
             )
 
             backward_targets = [
