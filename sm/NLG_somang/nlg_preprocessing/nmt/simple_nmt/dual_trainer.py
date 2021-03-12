@@ -23,14 +23,14 @@ X2Y, Y2X = 0, 1
 class DualSupervisedTrainingEngine(Engine):
 
     def __init__(
-        self,
-        func,
-        models,
-        crits,
-        optimizers,
-        lr_schedulers,
-        language_models,
-        config
+            self,
+            func,
+            models,
+            crits,
+            optimizers,
+            lr_schedulers,
+            language_models,
+            config
     ):
         self.models = models
         self.crits = crits
@@ -175,11 +175,11 @@ class DualSupervisedTrainingEngine(Engine):
             # |log_p_y| = (batch_size, )
 
             # Just for logging: both losses are detached.
-            dual_loss = lagrange * ((log_p_x + log_p_y_given_x.detach()) - (log_p_y + log_p_x_given_y.detach()))**2
+            dual_loss = lagrange * ((log_p_x + log_p_y_given_x.detach()) - (log_p_y + log_p_x_given_y.detach())) ** 2
 
             # Note that 'detach()' is used to prevent unnecessary back-propagation.
-            loss_x2y += lagrange * ((log_p_x + log_p_y_given_x) - (log_p_y + log_p_x_given_y.detach()))**2
-            loss_y2x += lagrange * ((log_p_x + log_p_y_given_x.detach()) - (log_p_y + log_p_x_given_y))**2
+            loss_x2y += lagrange * ((log_p_x + log_p_y_given_x) - (log_p_y + log_p_x_given_y.detach())) ** 2
+            loss_y2x += lagrange * ((log_p_x + log_p_y_given_x.detach()) - (log_p_y + log_p_x_given_y)) ** 2
         else:
             dual_loss = None
 
@@ -198,14 +198,14 @@ class DualSupervisedTrainingEngine(Engine):
             language_model.eval()
             model.train()
             if engine.state.iteration % engine.config.iteration_per_update == 1 or \
-                engine.config.iteration_per_update == 1:
+                    engine.config.iteration_per_update == 1:
                 if engine.state.iteration > 1:
                     optimizer.zero_grad()
 
         device = next(engine.models[0].parameters()).device
         mini_batch.src = (mini_batch.src[0].to(device), mini_batch.src[1].to(device))
         mini_batch.tgt = (mini_batch.tgt[0].to(device), mini_batch.tgt[1].to(device))
-        
+
         with autocast(not engine.config.off_autocast):
             # X2Y => data loader 에서 넘어온 형태, 구현이 짧음
             # x 는 Encoder 에 들어갈 값이므로 <BOS>, <EOS> 를 제거해줌, Decoder 에 들어갈 y 는 <EOS> 를 제거
@@ -218,20 +218,20 @@ class DualSupervisedTrainingEngine(Engine):
             y_hat = engine.models[X2Y](x, y)
             # |y_hat| = (batch_size, m, y_vocab_size)
             # y_hat 에는 각 미니배치의 샘플별 각 타임스텝별 각 단어별 확률값이 들어있음
-            
+
             if engine.state.epoch > engine.config.dsl_n_warmup_epochs:  # warmup 상태가 지났는지 확인
-                with torch.no_grad():                                   # warmup 상태가 끝이나면 gradient 계산 X
-                    y_hat_lm = engine.language_models[X2Y](y)           # log P (y)
+                with torch.no_grad():  # warmup 상태가 끝이나면 gradient 계산 X
+                    y_hat_lm = engine.language_models[X2Y](y)  # log P (y)
                     # |y_hat_lm| = |y_hat| = (batch_size, m, y_vocab_size)
 
-            #Y2X
+            # Y2X
             # Since encoder in seq2seq takes packed_sequence instance,
             # we need to re-sort if we use reversed src and tgt.
 
             # 정렬이 X2Y 기준으로 되어있기 때문에 재정렬 필요
             x, y, restore_indice = DualSupervisedTrainingEngine._reorder(
-                mini_batch.src[0][:, :-1],      # => Decoder 에 들어가야 하기 때문에 <EOS> 를 제거
-                mini_batch.tgt[0][:, 1:-1],     # => Encoder 에 들어가야 하기 때문에 <BOS>, <EOS> 를 제거
+                mini_batch.src[0][:, :-1],  # => Decoder 에 들어가야 하기 때문에 <EOS> 를 제거
+                mini_batch.tgt[0][:, 1:-1],  # => Encoder 에 들어가야 하기 때문에 <BOS>, <EOS> 를 제거
                 mini_batch.tgt[1] - 2,
             )
             # |x| = (batch_size, n)
@@ -277,13 +277,13 @@ class DualSupervisedTrainingEngine(Engine):
 
         x_word_count = int(mini_batch.src[1].sum())
         y_word_count = int(mini_batch.tgt[1].sum())
-        p_norm = float(get_parameter_norm(list(engine.models[X2Y].parameters()) + 
+        p_norm = float(get_parameter_norm(list(engine.models[X2Y].parameters()) +
                                           list(engine.models[Y2X].parameters())))
         g_norm = float(get_grad_norm(list(engine.models[X2Y].parameters()) +
                                      list(engine.models[Y2X].parameters())))
 
         if engine.state.iteration % engine.config.iteration_per_update == 0 and \
-            engine.state.iteration > 0:
+                engine.state.iteration > 0:
             for model, optimizer, scaler in zip(engine.models,
                                                 engine.optimizers,
                                                 engine.scalers):
@@ -337,7 +337,7 @@ class DualSupervisedTrainingEngine(Engine):
                 )
                 # |x_hat| = (batch_size, n, x_vocab_size)
 
-                # You don't have to use _get_loss method, 
+                # You don't have to use _get_loss method,
                 # because we don't have to care about the gradients.
                 x, y = mini_batch.src[0][:, 1:], mini_batch.tgt[0][:, 1:]
                 loss_x2y = engine.crits[X2Y](
@@ -359,11 +359,11 @@ class DualSupervisedTrainingEngine(Engine):
 
     @staticmethod
     def attach(
-        train_engine,
-        validation_engine,
-        training_metric_names = ['x2y', 'y2x', 'reg', '|param|', '|g_param|'],
-        validation_metric_names = ['x2y', 'y2x'],
-        verbose=VERBOSE_BATCH_WISE
+            train_engine,
+            validation_engine,
+            training_metric_names=['x2y', 'y2x', 'reg', '|param|', '|g_param|'],
+            validation_metric_names=['x2y', 'y2x'],
+            verbose=VERBOSE_BATCH_WISE
     ):
         # Attaching would be repaeted for serveral metrics.
         # Thus, we can reduce the repeated codes by using this function.
@@ -389,14 +389,15 @@ class DualSupervisedTrainingEngine(Engine):
                 avg_y2x = engine.state.metrics['y2x']
                 avg_reg = engine.state.metrics['reg']
 
-                print('Epoch {} - |param|={:.2e} |g_param|={:.2e} loss_x2y={:.4e} ppl_x2y={:.2f} loss_y2x={:.4e} ppl_y2x={:.2f} dual_loss={:.4e}'.format(
-                    engine.state.epoch,
-                    avg_p_norm,
-                    avg_g_norm,
-                    avg_x2y, np.exp(avg_x2y),
-                    avg_y2x, np.exp(avg_y2x),
-                    avg_reg,
-                ))
+                print(
+                    'Epoch {} - |param|={:.2e} |g_param|={:.2e} loss_x2y={:.4e} ppl_x2y={:.2f} loss_y2x={:.4e} ppl_y2x={:.2f} dual_loss={:.4e}'.format(
+                        engine.state.epoch,
+                        avg_p_norm,
+                        avg_g_norm,
+                        avg_x2y, np.exp(avg_x2y),
+                        avg_y2x, np.exp(avg_y2x),
+                        avg_reg,
+                    ))
 
         for metric_name in validation_metric_names:
             attach_running_average(validation_engine, metric_name)
@@ -448,7 +449,7 @@ class DualSupervisedTrainingEngine(Engine):
         # Set a filename for model of last epoch.
         # We need to put every information to filename, as much as possible.
         model_fn = config.model_fn.split('.')
-        
+
         model_fn = model_fn[:-1] + ['%02d' % train_engine.state.epoch,
                                     '%.2f-%.2f' % (avg_train_x2y,
                                                    np.exp(avg_train_x2y)
@@ -491,13 +492,13 @@ class DualSupervisedTrainer():
         self.config = config
 
     def train(
-        self,
-        models, language_models,
-        crits, optimizers,
-        train_loader, valid_loader,
-        vocabs,
-        n_epochs,
-        lr_schedulers=None
+            self,
+            models, language_models,
+            crits, optimizers,
+            train_loader, valid_loader,
+            vocabs,
+            n_epochs,
+            lr_schedulers=None
     ):
         # Declare train and validation engine with necessary objects.
         train_engine = DualSupervisedTrainingEngine(
