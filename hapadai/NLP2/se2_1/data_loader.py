@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import seq2seq
 
+from torch import optim
+import torch_optimizer as custom_optim
 
 # PAD, BOS, EOS = 100, 200, 300
 PAD, BOS, EOS = 1, 2, 3
@@ -246,12 +248,97 @@ def to_text(indice, vocab):
                 line += ['<EOS>']
                 break
             else:
-                line += [vocab.itos[index]]
+                # print(index)
+                if index < 300:
+                    line += [vocab.itos[index]]
 
         line = ' '.join(line)
         lines += [line]
-    print('lines : ', len(lines))
     return lines
+
+
+
+def bsToTextTgt(tildes, type):
+    print('###############')
+    print(len(tildes))
+
+    hats = []
+    indices = []
+
+    for it in range(len(tildes)):
+        tilde = tildes[it]
+
+        hat = generator(tilde)
+        hats += [hat]
+        indice = hat.argmax(dim=-1)
+        indices += [indice]
+        # print(indice)
+    hats = torch.cat(hats, dim=1)
+    indices = torch.cat(indices, dim=1)
+
+    if type == 'src':
+        output = to_text(indices, loader.src.vocab)
+    else:
+        output = to_text(indices, loader.tgt.vocab)
+    listPrint(output)
+
+def bsToTextSrc(tildes, type):
+    print('###############')
+    print(len(tildes))
+
+    hats = []
+    indices = []
+
+    for it in range(len(tildes)):
+        tilde = tildes[it]
+
+        hat = generator(tilde)
+        hats += [hat]
+        indice = hat.argmax(dim=-1)
+        indices += [indice]
+
+    if type == 'src':
+        output = to_text(indices, loader.src.vocab)
+    else:
+        output = to_text(indices, loader.tgt.vocab)
+    listPrint(output)
+
+def listPrint(tmp):
+    print(len(tmp))
+    for it in range(len(tmp)):
+        print(tmp[it])
+
+
+def get_crit(output_size, pad_index):
+    # Default weight for loss equals to 1, but we don't need to get loss for PAD token.
+    # Thus, set a weight for PAD to zero.
+    loss_weight = torch.ones(output_size)   # torch.ones(x) : 파라미터로 받은 변수 x의 크기만큼의 1로 채워진 tensor 생성
+    loss_weight[pad_index] = 0.             # <PAD> 토큰이 채워진부분의 weight 값을 모두 0으로 변환
+    # Instead of using Cross-Entropy loss,
+    # we can use Negative Log-Likelihood(NLL) loss with log-probability.
+    crit = nn.NLLLoss(
+        weight=loss_weight,
+        reduction='sum'                     # 'none' : 감소 적용 X | 'mean' : 출력의 가중평균 사용 | 'sum' : 출력 합산
+    )
+
+    return crit
+
+
+def get_optimizer(model, config):
+    if config.use_adam:
+        if config.use_transformer:
+            optimizer = optim.Adam(model.parameters(), lr=config.lr, betas=(.9, .98))
+            # betas : 그래디언트와 그 제곱의 지수평균을 계산하는데 사용 (기본값 : 0.9, 0.999)
+
+        else:   # case of rnn based seq2seq.
+            optimizer = optim.Adam(model.parameters(), lr=config.lr)
+    elif config.use_radam:
+        optimizer = custom_optim.RAdam(model.parameters(), lr=config.lr)
+    else:
+        optimizer = optim.SGD(model.parameters(), lr=config.lr)
+
+    return optimizer
+
 
 if __name__ == '__main__':
     loader = DataLoader(
@@ -265,10 +352,10 @@ if __name__ == '__main__':
 
     batch_size = 10
     n_epochs = 1
-    max_length = 164
+    max_length = 64
     dropout = .2
-    word_vec_size = 5
-    hidden_size = 100
+    word_vec_size = 512
+    hidden_size = 768
     n_layers = 1
     max_grad_norm = 1e+8
     iteration_per_update = 2
@@ -288,7 +375,7 @@ if __name__ == '__main__':
         # print('batch_index :', batch_index)
         # print('batch :', batch)
 
-
+    # print(loader.src.vocab..__dict__)
 
     print('\n ## Seq2Seq ##')
     # Embed
@@ -303,11 +390,12 @@ if __name__ == '__main__':
     # Attention
     attn = seq2seq.Attention(hidden_size)
     linear = nn.Linear(hidden_size*2, hidden_size)
+    linear_enc = nn.Linear(hidden_size, hidden_size)
     tanh = nn.Tanh()
     generator = seq2seq.Generator(hidden_size, output_size)
 
 
-
+    # todo : Encoder
     print('\n ## Encoder ##')
     # Encoder 준비
     x = None
@@ -321,6 +409,9 @@ if __name__ == '__main__':
     mask = generate_mask(x, x_length)
     print('mask : ', mask.size())
     # |mask| = (batch_size, length) mask :  torch.Size([10, 71])
+
+    x_enc = to_text(x, loader.src.vocab)
+    listPrint(x_enc)
 
     # Encoder
     # embed
@@ -338,30 +429,10 @@ if __name__ == '__main__':
     print('h_s_enc[1] : ', hidden_enc[1].size())  # h_s_enc: torch.Size([2, 10, 384])
     # print(output_enc)
 
-    test_out_encs = []
-    test_out_enc_indices = []
-    # test : encoder output : 0 ~ 70
-    for i in range(output_enc.size(1)):
-        # print(i)
-        # pass
-        out_enc = output_enc[:, i, :].unsqueeze(1)
-        # print(out_enc.size())
-        # print(out_enc)
-        
-        test_out_enc = generator(out_enc)
-        test_out_encs += [test_out_enc]
-        test_out_enc_indice = test_out_enc.argmax(dim=-1)
-        test_out_enc_indices += [test_out_enc_indice]
-
-    test_out_encs = torch.cat(test_out_encs, dim=1)
-    test_out_enc_indices = torch.cat(test_out_enc_indices, dim=1)
-    print('test_out_encs : ', test_out_encs.size())
-    print('test_out_enc_indices : ', test_out_enc_indices.size())
-    
-    # to_text 수정
-    output = to_text(test_out_enc_indices, loader.src.vocab)
-    print(output)
-    
+    # tilde_enc = tanh(linear_enc(output_enc))
+    # bsToTextSrc(tilde_enc, 'src')
+    bsToTextSrc(output_enc, 'src')
+    # bsToTextTgt(tilde_enc)
     ################################################
 
     print('\n ## Decoder ##')
@@ -372,6 +443,10 @@ if __name__ == '__main__':
     if isinstance(batch.tgt, tuple):
         tgt = batch.tgt[0]
         tgt_length = batch.tgt[1]
+
+
+    tgt_dec = to_text(tgt, loader.tgt.vocab)
+    listPrint(tgt_dec)
 
     # emb_dec
     emb_dec = embed_dec(tgt)
@@ -393,88 +468,43 @@ if __name__ == '__main__':
     # tgt_length :  tensor([64, 60, 52, 41, 43, 38, 44, 35, 45, 22])
 
     # test
-    test_indice = []
-    test_y_hats = []
+    test_out_dec = []
+    test_context_vector = []
 
-    test_cvs = []
-    test_cv_indice = []
+
+
 
 
     # 첫번째가 mini batch의 max length : 0 ~ 63
     for t in range(tgt.size(1)):
 
         emb_t = emb_dec[:, t, :].unsqueeze(1)
-
         output_dec, hidden_dec = decoder(emb_t, h_t_tilde, decoder_hidden)
-
         context_vector = attn(output_enc, output_dec, mask)
-
         h_t_tilde = tanh(linear(torch.cat([output_dec, context_vector], dim=-1)))
-        # |h_t_tilde| = (batch_size, 1, hidden_size)
+        # |h_t_tilde| = (batch_size, 1, hidden_size)   torch.Size([10, 1, 100])
 
+        test_out_dec += [output_dec]
+        test_context_vector += [context_vector]
+        # 총 63번째 time step의 bs 10개씩의
         h_tilde += [h_t_tilde]
 
         if t == 63:
-            print('emb_t : ', emb_t.size())  # emb_t :  torch.Size([10, 1, 5])
-            print('output_dec : ', output_dec.size())  # output_dec :  torch.Size([10, 1, 100])
-            print('hidden_dec : ', hidden_dec[0].size())
+            print('emb_t : ', emb_t.size())                    # emb_t :  torch.Size([10, 1, 5])
+            print('output_dec : ', output_dec.size())          # output_dec :  torch.Size([10, 1, 100])
+            print('hidden_dec : ', hidden_dec[0].size())       # torch.Size([1, 10, 100])
             print('context_vector : ', context_vector.size())  # context_vector :  torch.Size([10, 1, 100])
-            print('h_t_tilde : ', h_t_tilde.size())  # h_t_tilde :  torch.Size([10, 1, 100])
+            print('h_t_tilde : ', h_t_tilde.size())            # h_t_tilde :  torch.Size([10, 1, 100])
             print('h_tilde : ', len(h_tilde))
 
-        # 데이터 확인
-        # Test - context_vector
-        test_cv = generator(context_vector)
-        # print('test_cv : ', test_cv.size())          # test_cv :  torch.Size([10, 1, 328])
-        test_cvs += [test_cv]
+    print('##################')
+    print('test_out_dec')
+    bsToTextTgt(test_out_dec, 'tgt')
 
-        test_c = test_cv.argmax(dim=-1)
-        test_cv_indice += [test_c]
+    print('test_context_vector')
+    bsToTextTgt(test_context_vector, 'src')
 
-
-        # Test - h_t_tilde
-        # bs 10개의 63번째 time step의 y_hat : 총 10개(pad 포함)
-        test_y_hat = generator(h_t_tilde)
-        # print('test_y_hat : ', test_y_hat.size())          # test_y_hat :  torch.Size([10, 1, 328])
-        test_y_hats += [test_y_hat]
-
-        test_y = test_y_hat.argmax(dim=-1)
-        test_indice += [test_y]
-
-    print('\n ## Result ##')
-
-    # h_tilde
-    h_tilde = torch.cat(h_tilde, dim=1)
-    # print('h_tilde :' , h_tilde)
-    print('All h_tilde : ', h_tilde.size())
-    # print(h_tilde.sum(dim=1))
-
-    # y_hat
-    y_hat = generator(h_tilde)
-    print('y_hat size : ', y_hat.size())
-    # print(y_hat)
-    # print(y_hat.sum(dim=-1))
+    print('result')
+    bsToTextTgt(h_tilde, 'src')
 
 
-    print('\n ## Test ##')
-    # test
-    # test : context vector
-    test_cvs = torch.cat(test_cvs, dim=1)
-    test_cv_indice = torch.cat(test_cv_indice, dim=1)
-    print('test_cvs : ', test_cvs.size())
-    print('test_cv_indice : ', test_cv_indice.size())
-
-    output = to_text(test_cv_indice, loader.src.vocab)
-    print(output)
-
-    # y_hat
-    test_y_hats = torch.cat(test_y_hats, dim=1)
-    test_indice = torch.cat(test_indice, dim=1)
-    print('test_y_hats : ', test_y_hats.size()) # test_y_hats :  torch.Size([10, 64, 328])
-    print('test_indice : ', test_indice.size()) # test_indice :  torch.Size([10, 64])
-
-    # print(test_y_hats)
-    # print(test_indice)
-
-    output = to_text(test_indice, loader.tgt.vocab)
-    print(output)
