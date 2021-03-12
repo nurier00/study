@@ -31,6 +31,8 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
         # For now, we uses GLEU in NLTK, but you can used your own well-defined reward function.
         # In addition, GLEU is variation of BLEU, and it is more fit to reinforcement learning.
         sf = SmoothingFunction()
+
+        # 정답과 예측값의 유사도를 구하기 위한 함수들, param으로 전달받은 method를 사용
         score_func = {
             'gleu':  lambda ref, hyp: sentence_gleu([ref], hyp, max_len=n_gram),
             'bleu1': lambda ref, hyp: sentence_bleu([ref], hyp,
@@ -45,7 +47,7 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
         }[method]
 
         # Since we don't calculate reward score exactly as same as multi-bleu.perl,
-        # (especially we do have different tokenization,) I recommend to set n_gram to 6.
+        # (especialy we do have different tokenization,) I recommend to set n_gram to 6.
 
         # |y| = (batch_size, length1)
         # |y_hat| = (batch_size, length2)
@@ -55,11 +57,13 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
 
             for b in range(y.size(0)):  # batch_size 만큼
                 ref, hyp = [], []
-                for t in range(y.size(-1)):
-                    ref += [str(int(y[b, t]))]
+                # y
+                for t in range(y.size(-1)):  # 문장 길이 만큼
+                    ref += [str(int(y[b, t]))]  # y[b, t] b번째 문장의 t번째 단어가 단어사전을 통해 나온 emb된 값
                     if y[b, t] == data_loader.EOS:
                         break
 
+                # y_hat
                 for t in range(y_hat.size(-1)):
                     hyp += [str(int(y_hat[b, t]))]
                     if y_hat[b, t] == data_loader.EOS:
@@ -67,10 +71,6 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
                 # Below lines are slower than naive for loops in above.
                 # ref = y[b].masked_select(y[b] != data_loader.PAD).tolist()
                 # hyp = y_hat[b].masked_select(y_hat[b] != data_loader.PAD).tolist()
-
-                # y 와 y_hat 의 인덱스가 각 문장길이만큼 list 로 들어가 있음
-                # |ref| = (length)
-                # |hyp| = (length)
 
                 scores += [score_func(ref, hyp) * 100.]
             scores = torch.FloatTensor(scores).to(y.device)
@@ -108,9 +108,6 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
             reduction='none'
         ).view(batch_size, -1).sum(dim=-1)
 
-        print(f"log_prob : {log_prob}")
-        print(f"log_prob shape : {log_prob.shape}")
-
         loss = (log_prob * -reward).sum()
         # Following two equations are eventually same.
         # \theta = \theta - risk * \nabla_\theta \log{P}
@@ -130,26 +127,31 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
                 engine.optimizer.zero_grad()
 
         device = next(engine.model.parameters()).device
+        # src,tgt 데이터 설정
         mini_batch.src = (mini_batch.src[0].to(device), mini_batch.src[1])
         mini_batch.tgt = (mini_batch.tgt[0].to(device), mini_batch.tgt[1])
 
         # Raw target variable has both BOS and EOS token.
         # The output of sequence-to-sequence does not have BOS token.
         # Thus, remove BOS token for reference.
+        # y는 BOS 제외하고
         x, y = mini_batch.src, mini_batch.tgt[0][:, 1:]
         # |x| = (batch_size, length)
         # |y| = (batch_size, length)
 
         # Take sampling process because set False for is_greedy.
+        # |y_hat| = (batch_size, length, output_size)
+        # |indice| = (batch_size, length)
+        # 학습할 때 forward 가 아닌 search 의 sampling 방식 사용
         y_hat, indice = engine.model.search(
             x,
             is_greedy=False,
             max_length=engine.config.max_length
         )
 
-        # policy gradient 로 인해 미분이 일어나지 않음
         with torch.no_grad():
             # Based on the result of sampling, get reward.
+            # y와 y_hat으로 batch_size 만큼의 score 계산 (default = gleu)
             actor_reward = MinimumRiskTrainingEngine._get_reward(
                 indice,
                 y,
@@ -163,7 +165,7 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
             # Take samples as many as n_samples, and get average rewards for them.
             # I figured out that n_samples = 1 would be enough.
             baseline = []
-
+            # sampling 횟수, 1로도 충분?
             for _ in range(engine.config.rl_n_samples):
                 _, sampled_indice = engine.model.search(
                     x,
@@ -184,7 +186,7 @@ class MinimumRiskTrainingEngine(MaximumLikelihoodEstimationEngine):
 
             # Now, we have relatively expected cumulative reward.
             # Which score can be drawn from actor_reward subtracted by baseline.
-            reward = actor_reward - baseline
+            reward = actor_reward - baseline    # 각 원소 끼리 마이너스 연산, 왜?
             # |reward| = (batch_size)
 
         # calculate gradients with back-propagation
